@@ -84,13 +84,14 @@ window.CAP_EXEMPT_CONFIG = {
     selectedRoom: '101教室',
     matrixCategory: 'lecture',
 
-    // 履修基準・計画の状態
+    // 履修基準・計画の状態 (全免許横断共有)
     curricCourse: 'tech',
+    curricViewMode: 'table', // 'table' | 'timeline'
     curricStatusFilter: 'all', // 'all' | 'none' | 'in_progress' | 'completed'
     curricSearchQuery: '',
     curricCollapsedCats: new Set(),
     curricUserData: {
-      version: 2,
+      version: 3,
       subjects: {}
     },
     activeCurricSubject: null,
@@ -218,6 +219,7 @@ window.CAP_EXEMPT_CONFIG = {
 
     // 履修基準・計画 (TAB: curriculum)
     curricCourseSelect: document.getElementById('curric-course-select'),
+    curricViewModeGroup: document.getElementById('curric-view-mode-group'),
     btnCurricResetData: document.getElementById('btn-curric-reset-data'),
     curricStatBadge: document.getElementById('curric-stat-badge'),
     curricStatCompleted: document.getElementById('curric-stat-completed'),
@@ -233,6 +235,7 @@ window.CAP_EXEMPT_CONFIG = {
     btnCurricCollapseAll: document.getElementById('btn-curric-collapse-all'),
     btnCurricExpandAll: document.getElementById('btn-curric-expand-all'),
     curricTableViewContainer: document.getElementById('curric-table-view-container'),
+    curricTimelineViewContainer: document.getElementById('curric-timeline-view-container'),
 
     // 候補選択モーダル
     curricCandidatesModal: document.getElementById('curric-candidates-modal'),
@@ -1477,7 +1480,7 @@ window.CAP_EXEMPT_CONFIG = {
 
 
 // ====================================================
-// 履修基準・計画 (Curriculum & Study Plan) 完全版ロジック
+// 履修基準・計画 (Curriculum & Study Plan) ロジック Part 1
 // ====================================================
 
 function normalizeSubName(s) {
@@ -1502,40 +1505,66 @@ function getCurricTables() {
   return [];
 }
 
-function extractStdSemString(r) {
-  if (r.semesters && typeof r.semesters === 'object') {
-    const list = [];
-    Object.keys(r.semesters).forEach(k => {
-      const v = r.semesters[k];
-      if (v) list.push(`${k}(${v})`);
-    });
-    if (list.length > 0) return list.join(', ');
-  }
-  if (r.semester_spanning_note) return r.semester_spanning_note;
-  if (r.remarks) return r.remarks;
-  return '—';
-}
+const TIMELINE_SEMESTERS = [
+  '1年前期', '1年後期',
+  '2年前期', '2年後期',
+  '3年前期', '3年後期',
+  '4年前期', '4年後期'
+];
 
-function extractSubjectCredits(r, defaultCr = 2) {
-  if (r.required_credits_individual) {
-    const n = Number(r.required_credits_individual);
-    if (!isNaN(n) && n > 0) return n;
+function extractSubjectInfo(r, defaultCr = 2) {
+  const isRequired = (r.required_credits_individual !== null && r.required_credits_individual !== undefined && String(r.required_credits_individual).trim() !== '');
+  let credits = defaultCr;
+
+  if (isRequired) {
+    credits = Number(r.required_credits_individual) || defaultCr;
+  } else {
+    // semesters から単位数を探索
+    if (r.semesters && typeof r.semesters === 'object') {
+      for (const k of Object.keys(r.semesters)) {
+        const v = r.semesters[k];
+        if (v) {
+          const m = String(v).match(/\d+/);
+          if (m) {
+            credits = Number(m[0]);
+            break;
+          }
+        }
+      }
+    }
+    if (r.subject_name) {
+      if (r.subject_name.includes('実験実習') || r.subject_name.includes('実技') || r.subject_name.includes('演習') || r.subject_name.includes('製作')) {
+        credits = 1;
+      }
+      if (r.subject_name === '卒業論文') credits = 6;
+    }
   }
+
+  // 配当学期の抽出
+  const targetColumns = [];
+  const stdSemList = [];
   if (r.semesters && typeof r.semesters === 'object') {
-    for (const k of Object.keys(r.semesters)) {
-      const v = r.semesters[k];
-      if (v && /^\d+$/.test(String(v))) {
-        return Number(v);
+    for (const sem of TIMELINE_SEMESTERS) {
+      const v = r.semesters[sem];
+      if (v && String(v).trim()) {
+        targetColumns.push(sem);
+        stdSemList.push(`${sem}(${v})`);
       }
     }
   }
-  if (r.subject_name) {
-    if (r.subject_name.includes('実験実習') || r.subject_name.includes('実技') || r.subject_name.includes('演習')) {
-      return 1;
-    }
-    if (r.subject_name === '卒業論文') return 6;
+  if (targetColumns.length === 0) {
+    targetColumns.push('通年・隔年・その他');
   }
-  return defaultCr;
+
+  let stdSemStr = stdSemList.length > 0 ? stdSemList.join(', ') : (r.semester_spanning_note || r.remarks || '—');
+
+  return {
+    credits,
+    isRequired,
+    type: isRequired ? '必修' : '選択',
+    targetColumns,
+    stdSem: stdSemStr
+  };
 }
 
 // ----------------------------------------------------
@@ -1562,17 +1591,23 @@ const CURRIC_COURSES = {
       if (t2 && Array.isArray(t2.rows)) {
         t2.rows.forEach(r => {
           if (r.category_1 === '共通科目' && r.subject_name) {
+            const info = extractSubjectInfo(r, 2);
             const isComm = r.subject_name.includes('コミュニケーション');
-            const cr = extractSubjectCredits(r, isComm ? 1 : 2);
+            const coreKey = normalizeSubName(r.subject_name);
+
             subjects.push({
-              key: `tech__${r.subject_name}__common`,
+              key: `tech__${coreKey}`,
+              coreKey: coreKey,
               name: r.subject_name,
               category: '共通科目',
               group: isComm ? '外国語コミュニケーション選択群 (同一言語で2単位修得)' : '共通必修科目',
               groupRequired: isComm ? 2 : null,
               isGroupElective: isComm,
-              credits: cr,
-              stdSem: extractStdSemString(r),
+              credits: info.credits,
+              isRequired: !isComm && info.isRequired,
+              type: isComm ? '選択' : (info.isRequired ? '必修' : '選択'),
+              stdSem: info.stdSem,
+              targetColumns: info.targetColumns,
               rule: r.required_credits_group_rule || '',
               remarks: r.remarks || ''
             });
@@ -1584,11 +1619,11 @@ const CURRIC_COURSES = {
       if (t2 && Array.isArray(t2.rows)) {
         t2.rows.forEach(r => {
           if (r.category_1 === '教科及び教職科目' && r.subject_name) {
-            // 別表1で具体化する3枠は除外
             if (r.subject_name === '教科に関する専門的事項' || r.subject_name === '各教科の指導法' || r.subject_name === '複合科目') {
               return;
             }
-            const cr = extractSubjectCredits(r, 2);
+            const info = extractSubjectInfo(r, 2);
+            const coreKey = normalizeSubName(r.subject_name);
             let grp = r.category_2 || '教職科目';
             let isGroupElective = false;
             let groupReq = null;
@@ -1600,14 +1635,18 @@ const CURRIC_COURSES = {
             }
 
             subjects.push({
-              key: `tech__${r.subject_name}__teacher`,
+              key: `tech__${coreKey}`,
+              coreKey: coreKey,
               name: r.subject_name,
               category: '教職科目（教育の基礎・指導法・実践等）',
               group: grp,
               groupRequired: groupReq,
               isGroupElective: isGroupElective,
-              credits: cr,
-              stdSem: extractStdSemString(r),
+              credits: info.credits,
+              isRequired: info.isRequired,
+              type: info.type,
+              stdSem: info.stdSem,
+              targetColumns: info.targetColumns,
               rule: r.required_credits_group_rule || '',
               remarks: r.remarks || ''
             });
@@ -1615,20 +1654,26 @@ const CURRIC_COURSES = {
         });
       }
 
-      // 3. 技術科専門科目 (別表1より: 教科専門20単位 + 指導法8単位 + 複合2単位 = 30単位)
+      // 3. 技術科専門科目 (別表1より: 計30単位必修)
       if (t9 && Array.isArray(t9.rows)) {
         t9.rows.forEach(r => {
           if (r.category_1 === '技術' && r.subject_name) {
-            const cr = extractSubjectCredits(r, 2);
+            const info = extractSubjectInfo(r, 2);
+            const coreKey = normalizeSubName(r.subject_name);
+
             subjects.push({
-              key: `tech__${r.subject_name}__license`,
+              key: `tech__${coreKey}`,
+              coreKey: coreKey,
               name: r.subject_name,
               category: '技術科専門科目（免許法別表1）',
               group: r.category_2 || '教科専門事項',
               groupRequired: null,
               isGroupElective: false,
-              credits: cr,
-              stdSem: extractStdSemString(r),
+              credits: info.credits,
+              isRequired: true,
+              type: '必修',
+              stdSem: info.stdSem,
+              targetColumns: info.targetColumns,
               rule: r.required_credits_group_rule || '',
               remarks: r.remarks || ''
             });
@@ -1641,16 +1686,22 @@ const CURRIC_COURSES = {
         t2.rows.forEach(r => {
           if (r.category_1 === '専修専門等科目' && r.category_3 === '技術教育専修' && r.subject_name) {
             const isReq = (r.subject_name === '大学での学び入門' || r.subject_name === '専修基礎ゼミ');
-            const cr = extractSubjectCredits(r, isReq ? (r.subject_name === '大学での学び入門' ? 1 : 2) : 2);
+            const info = extractSubjectInfo(r, isReq ? (r.subject_name === '大学での学び入門' ? 1 : 2) : 2);
+            const coreKey = normalizeSubName(r.subject_name);
+
             subjects.push({
-              key: `tech__${r.subject_name}__major`,
+              key: `tech__${coreKey}`,
+              coreKey: coreKey,
               name: r.subject_name,
               category: '専修専門科目（技術教育専修）',
               group: isReq ? '専修必修科目 (3単位)' : '専修選択科目群 (当該科目群から20単位選択修得)',
               groupRequired: isReq ? 3 : 20,
               isGroupElective: !isReq,
-              credits: cr,
-              stdSem: extractStdSemString(r),
+              credits: info.credits,
+              isRequired: isReq,
+              type: isReq ? '必修' : '選択',
+              stdSem: info.stdSem,
+              targetColumns: info.targetColumns,
               rule: r.required_credits_group_rule || '',
               remarks: r.remarks || ''
             });
@@ -1662,15 +1713,20 @@ const CURRIC_COURSES = {
       if (t2 && Array.isArray(t2.rows)) {
         t2.rows.forEach(r => {
           if (r.category_1 === '卒業論文' && r.subject_name) {
+            const coreKey = normalizeSubName(r.subject_name);
             subjects.push({
-              key: `tech__${r.subject_name}__thesis`,
+              key: `tech__${coreKey}`,
+              coreKey: coreKey,
               name: r.subject_name,
               category: '卒業論文',
               group: '卒業論文（必修）',
               groupRequired: 6,
               isGroupElective: false,
               credits: 6,
-              stdSem: extractStdSemString(r),
+              isRequired: true,
+              type: '必修',
+              stdSem: '4年後期(6)',
+              targetColumns: ['4年後期'],
               rule: '',
               remarks: ''
             });
@@ -1698,7 +1754,9 @@ const CURRIC_COURSES = {
       if (t6 && Array.isArray(t6.rows)) {
         t6.rows.forEach(r => {
           if (!r.subject_name || r.category_1 === '必要修得単位数') return;
-          const cr = extractSubjectCredits(r, 2);
+          const info = extractSubjectInfo(r, 2);
+          const coreKey = normalizeSubName(r.subject_name);
+
           let cat = '教科に関する専門的事項（工業・20単位選択群）';
           let grp = '専門的事項選択群 (20単位選択)';
           let isGroupElective = true;
@@ -1722,14 +1780,18 @@ const CURRIC_COURSES = {
           }
 
           subjects.push({
-            key: `industry__${r.subject_name}__${cat}`,
+            key: `industry__${coreKey}`,
+            coreKey: coreKey,
             name: r.subject_name,
             category: cat,
             group: grp,
             groupRequired: groupReq,
             isGroupElective: isGroupElective,
-            credits: cr,
-            stdSem: extractStdSemString(r),
+            credits: info.credits,
+            isRequired: info.isRequired,
+            type: info.type,
+            stdSem: info.stdSem,
+            targetColumns: info.targetColumns,
             rule: r.required_credits_group_rule || '',
             remarks: r.remarks || ''
           });
@@ -1752,15 +1814,22 @@ const CURRIC_COURSES = {
       if (t8 && Array.isArray(t8.rows)) {
         t8.rows.forEach(r => {
           if (!r.subject_name) return;
+          const info = extractSubjectInfo(r, 2);
+          const coreKey = normalizeSubName(r.subject_name);
+
           subjects.push({
-            key: `librarian__${r.subject_name}`,
+            key: `librarian__${coreKey}`,
+            coreKey: coreKey,
             name: r.subject_name,
             category: '学校図書館司書教諭講習規程科目 (10単位必修)',
             group: '司書教諭規程科目（全5科目・各2単位）',
             groupRequired: 10,
             isGroupElective: false,
             credits: 2,
-            stdSem: extractStdSemString(r),
+            isRequired: true,
+            type: '必修',
+            stdSem: info.stdSem,
+            targetColumns: info.targetColumns,
             rule: '5科目10単位すべて修得必須',
             remarks: r.remarks || ''
           });
@@ -1786,7 +1855,9 @@ const CURRIC_COURSES = {
       if (t5 && Array.isArray(t5.rows)) {
         t5.rows.forEach(r => {
           if (!r.subject_name || r.category_1 === '必要修得単位数') return;
-          const cr = extractSubjectCredits(r, 2);
+          const info = extractSubjectInfo(r, 2);
+          const coreKey = normalizeSubName(r.subject_name);
+
           let cat = '教科に関する専門的事項（理科・20単位選択群）';
           let grp = r.category_2 || '専門的事項選択群 (20単位選択)';
           let isGroupElective = true;
@@ -1810,14 +1881,18 @@ const CURRIC_COURSES = {
           }
 
           subjects.push({
-            key: `science__${r.subject_name}__${cat}`,
+            key: `science__${coreKey}`,
+            coreKey: coreKey,
             name: r.subject_name,
             category: cat,
             group: grp,
             groupRequired: groupReq,
             isGroupElective: isGroupElective,
-            credits: cr,
-            stdSem: extractStdSemString(r),
+            credits: info.credits,
+            isRequired: info.isRequired,
+            type: info.type,
+            stdSem: info.stdSem,
+            targetColumns: info.targetColumns,
             rule: r.required_credits_group_rule || '',
             remarks: r.remarks || ''
           });
@@ -1830,10 +1905,10 @@ const CURRIC_COURSES = {
 
 
 // ====================================================
-// 履修データ永続化 & シラバス連携 & 進捗集計
+// 履修データ永続化 (全免許横断連動) & 進捗集計 Part 2
 // ====================================================
 
-const CURRIC_STORAGE_KEY = 'curriculum_nue_userdata_v2';
+const CURRIC_STORAGE_KEY = 'curriculum_nue_userdata_v3';
 
 function loadCurricUserData() {
   try {
@@ -1842,7 +1917,7 @@ function loadCurricUserData() {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === 'object') {
         state.curricUserData = {
-          version: 2,
+          version: 3,
           updatedAt: parsed.updatedAt || new Date().toISOString(),
           subjects: parsed.subjects || {}
         };
@@ -1853,7 +1928,7 @@ function loadCurricUserData() {
     console.error('Failed to load curriculum user data:', err);
   }
   state.curricUserData = {
-    version: 2,
+    version: 3,
     updatedAt: new Date().toISOString(),
     subjects: {}
   };
@@ -1868,15 +1943,25 @@ function saveCurricUserData() {
   }
 }
 
-function getCurricSubjectRecord(subKey) {
+// 科目の共通コアキーでステータスを取得（全免許間で同一科目が完全連動！）
+function getCurricSubjectRecord(subOrKey) {
+  let coreKey = '';
+  if (typeof subOrKey === 'string') {
+    coreKey = normalizeSubName(subOrKey);
+  } else if (subOrKey && subOrKey.coreKey) {
+    coreKey = subOrKey.coreKey;
+  } else if (subOrKey && subOrKey.name) {
+    coreKey = normalizeSubName(subOrKey.name);
+  }
+
   if (!state.curricUserData.subjects) state.curricUserData.subjects = {};
-  if (!state.curricUserData.subjects[subKey]) {
-    state.curricUserData.subjects[subKey] = {
+  if (!state.curricUserData.subjects[coreKey]) {
+    state.curricUserData.subjects[coreKey] = {
       status: 'none', // 'none' | 'in_progress' | 'completed'
       assignedLessonId: null
     };
   }
-  return state.curricUserData.subjects[subKey];
+  return state.curricUserData.subjects[coreKey];
 }
 
 function findCurricCandidates(subjectName) {
@@ -1935,7 +2020,7 @@ function getActiveCurricSubjects() {
 }
 
 // ----------------------------------------------------
-// 時間割連携ヘルパー
+// 時間割連携ヘルパー (全学期 & 全免許横断)
 // ----------------------------------------------------
 function getAllMyTimetableLessonIds() {
   const z = (state.myTimetable && state.myTimetable['前期']) || [];
@@ -1955,6 +2040,7 @@ function getAddedLessonForSubject(subjectName, candidates) {
   const allIds = getAllMyTimetableLessonIds();
   if (allIds.length === 0) return null;
 
+  // 1. candidates のいずれかが時間割に入っているか
   if (candidates && candidates.length > 0) {
     const candIds = new Set(candidates.map(c => c.id));
     const matchedId = allIds.find(id => candIds.has(id));
@@ -1963,6 +2049,14 @@ function getAddedLessonForSubject(subjectName, candidates) {
     }
   }
 
+  // 2. assignedLessonId を確認
+  const coreKey = normalizeSubName(subjectName);
+  const rec = getCurricSubjectRecord(coreKey);
+  if (rec && rec.assignedLessonId && allIds.includes(rec.assignedLessonId)) {
+    return DATA.lessons.find(x => x.id === rec.assignedLessonId) || { id: rec.assignedLessonId, name: subjectName };
+  }
+
+  // 3. 名前正規化一致
   const normSub = normalizeSubName(subjectName);
   for (const id of allIds) {
     const l = DATA.lessons.find(x => x.id === id);
@@ -1980,7 +2074,16 @@ function getAddedLessonForSubject(subjectName, candidates) {
 function renderCurriculumTab() {
   const subjects = getActiveCurricSubjects();
   renderCurricStats(subjects);
-  renderCurricTableView(subjects);
+
+  if (state.curricViewMode === 'timeline') {
+    if (dom.curricTableViewContainer) dom.curricTableViewContainer.style.display = 'none';
+    if (dom.curricTimelineViewContainer) dom.curricTimelineViewContainer.style.display = 'block';
+    renderCurricTimelineView(subjects);
+  } else {
+    if (dom.curricTableViewContainer) dom.curricTableViewContainer.style.display = 'block';
+    if (dom.curricTimelineViewContainer) dom.curricTimelineViewContainer.style.display = 'none';
+    renderCurricTableView(subjects);
+  }
 }
 
 function renderCurricStats(subjects) {
@@ -1990,11 +2093,10 @@ function renderCurricStats(subjects) {
   let totalRawCompleted = 0;
   let totalRawInProgress = 0;
 
-  // カテゴリ・グループ別集計
   const catMap = {};
 
   subjects.forEach(sub => {
-    const rec = getCurricSubjectRecord(sub.key);
+    const rec = getCurricSubjectRecord(sub);
     const cr = sub.credits || 2;
 
     if (!catMap[sub.category]) {
@@ -2036,7 +2138,7 @@ function renderCurricStats(subjects) {
     }
   });
 
-  // カテゴリ全体の必要単位算出
+  // 各カテゴリの必要単位算出
   Object.keys(catMap).forEach(catKey => {
     const c = catMap[catKey];
     let reqSum = 0;
@@ -2105,7 +2207,7 @@ function renderCurricStats(subjects) {
 
 
 // ----------------------------------------------------
-// 基準表テーブルビュー (科目群グループ化 & 洗練されたUI)
+// 基準表テーブルビュー & 年次別タイムラインビュー Part 3
 // ----------------------------------------------------
 
 function renderCurricTableView(subjects) {
@@ -2116,7 +2218,7 @@ function renderCurricTableView(subjects) {
   const sFilter = state.curricStatusFilter || 'all';
 
   const filtered = subjects.filter(sub => {
-    const rec = getCurricSubjectRecord(sub.key);
+    const rec = getCurricSubjectRecord(sub);
     if (sFilter !== 'all' && rec.status !== sFilter) return false;
     if (q) {
       const matchName = sub.name.toLowerCase().includes(q);
@@ -2133,7 +2235,6 @@ function renderCurricTableView(subjects) {
 
   const courseConf = CURRIC_COURSES[state.curricCourse] || CURRIC_COURSES.tech;
 
-  // カテゴリごとにまとめる
   const catMap = {};
   filtered.forEach(sub => {
     if (!catMap[sub.category]) catMap[sub.category] = [];
@@ -2167,13 +2268,12 @@ function renderCurricTableView(subjects) {
     let catCompleted = 0;
     let catTotalCredits = 0;
     subsInCat.forEach(s => {
-      const r = getCurricSubjectRecord(s.key);
+      const r = getCurricSubjectRecord(s);
       const cr = s.credits || 2;
       catTotalCredits += cr;
       if (r.status === 'completed') catCompleted += cr;
     });
 
-    // カテゴリ内のグループ（科目群）分け
     const groupMap = {};
     subsInCat.forEach(s => {
       const grp = s.group || '一般';
@@ -2195,7 +2295,7 @@ function renderCurricTableView(subjects) {
       let gComp = 0;
       let gTotal = 0;
       gSubs.forEach(s => {
-        const r = getCurricSubjectRecord(s.key);
+        const r = getCurricSubjectRecord(s);
         const cr = s.credits || 2;
         gTotal += cr;
         if (r.status === 'completed') gComp += cr;
@@ -2230,7 +2330,7 @@ function renderCurricTableView(subjects) {
               <tr>
                 <th style="width: 130px; text-align: center;">修得状況</th>
                 <th>科目名 / 詳細情報</th>
-                <th style="width: 75px; text-align: center;">単位数</th>
+                <th style="width: 100px; text-align: center;">単位 (区分)</th>
                 <th style="width: 140px; text-align: center;">標準配当</th>
                 <th style="width: 260px; text-align: center;">シラバス2026連携</th>
               </tr>
@@ -2264,27 +2364,27 @@ function renderCurricTableView(subjects) {
 }
 
 function renderCurricTableRowHtml(sub) {
-  const rec = getCurricSubjectRecord(sub.key);
+  const rec = getCurricSubjectRecord(sub);
   const candidates = findCurricCandidates(sub.name);
   const addedLesson = getAddedLessonForSubject(sub.name, candidates);
 
-  // ステータスボタン (未履修 / 履修中 / 修得済)
+  // ステータスピルボタン
   let statusBtnHtml = '';
   if (rec.status === 'completed') {
     statusBtnHtml = `
-      <button type="button" class="curric-status-pill status-completed" onclick="window.__cycleCurricStatus('${escapeHtml(sub.key)}')" title="クリックで状況を変更">
+      <button type="button" class="curric-status-pill status-completed" onclick="window.__cycleCurricStatus('${escapeHtml(sub.coreKey)}')" title="クリックで状況を変更">
         <span class="status-icon">✓</span> 修得済
       </button>
     `;
   } else if (rec.status === 'in_progress') {
     statusBtnHtml = `
-      <button type="button" class="curric-status-pill status-in-progress" onclick="window.__cycleCurricStatus('${escapeHtml(sub.key)}')" title="クリックで状況を変更">
+      <button type="button" class="curric-status-pill status-in-progress" onclick="window.__cycleCurricStatus('${escapeHtml(sub.coreKey)}')" title="クリックで状況を変更">
         <span class="status-icon">●</span> 履修中
       </button>
     `;
   } else {
     statusBtnHtml = `
-      <button type="button" class="curric-status-pill status-none" onclick="window.__cycleCurricStatus('${escapeHtml(sub.key)}')" title="クリックで状況を変更">
+      <button type="button" class="curric-status-pill status-none" onclick="window.__cycleCurricStatus('${escapeHtml(sub.coreKey)}')" title="クリックで状況を変更">
         <span class="status-icon">○</span> 未履修
       </button>
     `;
@@ -2299,7 +2399,7 @@ function renderCurricTableRowHtml(sub) {
           <span class="curric-linked-badge">✓ 時間割登録中</span>
           <span class="curric-linked-detail" title="${escapeHtml(addedLesson.name)}">${escapeHtml(addedLesson.semester || '')} ${escapeHtml(addedLesson.day || '')}${escapeHtml(addedLesson.periodRaw || '')} (${escapeHtml(addedLesson.teacher || '')})</span>
         </div>
-        <button type="button" class="btn-curric-unlink" onclick="window.__removeLessonFromCurric('${escapeHtml(sub.key)}', '${escapeHtml(addedLesson.id)}')">解除</button>
+        <button type="button" class="btn-curric-unlink" onclick="window.__removeLessonFromCurric('${escapeHtml(sub.coreKey)}', '${escapeHtml(addedLesson.id)}')">解除</button>
       </div>
     `;
   } else if (candidates.length === 0) {
@@ -2309,19 +2409,21 @@ function renderCurricTableRowHtml(sub) {
   } else if (candidates.length === 1) {
     const l = candidates[0];
     timetableActionHtml = `
-      <button type="button" class="btn-curric-add" onclick="window.__addLessonFromCurric('${escapeHtml(sub.key)}', '${escapeHtml(l.id)}')">
+      <button type="button" class="btn-curric-add" onclick="window.__addLessonFromCurric('${escapeHtml(sub.coreKey)}', '${escapeHtml(l.id)}')">
         <span class="btn-icon">＋</span> 時間割に追加
         <span class="btn-slot-tag">${escapeHtml(l.semester)} ${escapeHtml(l.day)}${escapeHtml(l.periodRaw)}</span>
       </button>
     `;
   } else {
     timetableActionHtml = `
-      <button type="button" class="btn-curric-pick" onclick="window.__openCurricCandidatesModal('${escapeHtml(sub.key)}')">
+      <button type="button" class="btn-curric-pick" onclick="window.__openCurricCandidatesModal('${escapeHtml(sub.coreKey)}')">
         <span class="btn-icon">＋</span> 開講枠を選択
         <span class="btn-count-bubble">${candidates.length}件</span>
       </button>
     `;
   }
+
+  const typeBadgeClass = sub.isRequired ? 'curric-type-req' : 'curric-type-elec';
 
   return `
     <tr class="curric-row row-${rec.status}">
@@ -2329,7 +2431,10 @@ function renderCurricTableRowHtml(sub) {
         ${statusBtnHtml}
       </td>
       <td class="cell-subject">
-        <div class="curric-sub-name">${escapeHtml(sub.name)}</div>
+        <div class="curric-sub-name">
+          ${escapeHtml(sub.name)}
+          <span class="${typeBadgeClass}">${escapeHtml(sub.type)}</span>
+        </div>
         ${sub.rule ? `<div class="curric-sub-rule">📌 ${escapeHtml(sub.rule)}</div>` : ''}
         ${sub.remarks ? `<div class="curric-sub-remarks">${escapeHtml(sub.remarks)}</div>` : ''}
       </td>
@@ -2346,14 +2451,167 @@ function renderCurricTableRowHtml(sub) {
   `;
 }
 
+// ----------------------------------------------------
+// 年次別タイムラインビュー (標準配当に基づくカンバンボード)
+// ----------------------------------------------------
+function renderCurricTimelineView(subjects) {
+  if (!dom.curricTimelineViewContainer) return;
+  dom.curricTimelineViewContainer.innerHTML = '';
+
+  const columns = [
+    { id: '1年前期', title: '1年前期' },
+    { id: '1年後期', title: '1年後期' },
+    { id: '2年前期', title: '2年前期' },
+    { id: '2年後期', title: '2年後期' },
+    { id: '3年前期', title: '3年前期' },
+    { id: '3年後期', title: '3年後期' },
+    { id: '4年前期', title: '4年前期' },
+    { id: '4年後期', title: '4年後期' },
+    { id: '通年・隔年・その他', title: '通年・隔年・その他' }
+  ];
+
+  const colMap = {};
+  columns.forEach(c => { colMap[c.id] = []; });
+
+  // フィルタリング
+  const q = (state.curricSearchQuery || '').trim().toLowerCase();
+  const sFilter = state.curricStatusFilter || 'all';
+
+  const filtered = subjects.filter(sub => {
+    const rec = getCurricSubjectRecord(sub);
+    if (sFilter !== 'all' && rec.status !== sFilter) return false;
+    if (q) {
+      const matchName = sub.name.toLowerCase().includes(q);
+      const matchCat = sub.category.toLowerCase().includes(q);
+      const matchGroup = (sub.group || '').toLowerCase().includes(q);
+      if (!matchName && !matchCat && !matchGroup) return false;
+    }
+    return true;
+  });
+
+  if (dom.curricDisplayCount) {
+    dom.curricDisplayCount.textContent = `表示: ${filtered.length} / ${subjects.length}件`;
+  }
+
+  // 各カラムへ配当
+  filtered.forEach(sub => {
+    const targets = sub.targetColumns && sub.targetColumns.length > 0 ? sub.targetColumns : ['通年・隔年・その他'];
+    targets.forEach(tCol => {
+      if (colMap[tCol]) {
+        colMap[tCol].push(sub);
+      } else {
+        colMap['通年・隔年・その他'].push(sub);
+      }
+    });
+  });
+
+  const timelineGrid = document.createElement('div');
+  timelineGrid.className = 'curric-timeline-grid';
+
+  columns.forEach(col => {
+    const subsInCol = colMap[col.id];
+    let colCredits = 0;
+    let colCompletedCredits = 0;
+
+    subsInCol.forEach(s => {
+      const cr = s.credits || 2;
+      colCredits += cr;
+      const r = getCurricSubjectRecord(s);
+      if (r.status === 'completed') colCompletedCredits += cr;
+    });
+
+    const colEl = document.createElement('div');
+    colEl.className = 'curric-timeline-col';
+
+    colEl.innerHTML = `
+      <div class="curric-timeline-col-header">
+        <div class="col-title-wrap">
+          <span class="curric-timeline-col-title">${col.title}</span>
+          <span class="curric-timeline-col-badge">${subsInCol.length}科目</span>
+        </div>
+        <div class="curric-timeline-col-credits">
+          修得 <strong>${colCompletedCredits}</strong> / 計${colCredits}単位
+        </div>
+      </div>
+      <div class="curric-timeline-col-body">
+        ${subsInCol.length === 0 ? '<div class="timeline-empty-slot">配当科目なし</div>' : subsInCol.map(s => renderCurricTimelineCardHtml(s)).join('')}
+      </div>
+    `;
+
+    timelineGrid.appendChild(colEl);
+  });
+
+  dom.curricTimelineViewContainer.appendChild(timelineGrid);
+}
+
+function renderCurricTimelineCardHtml(sub) {
+  const rec = getCurricSubjectRecord(sub);
+  const candidates = findCurricCandidates(sub.name);
+  const addedLesson = getAddedLessonForSubject(sub.name, candidates);
+
+  let statusClass = 'status-none';
+  let statusText = '未履修';
+  let statusIcon = '○';
+  if (rec.status === 'completed') {
+    statusClass = 'status-completed';
+    statusText = '修得済';
+    statusIcon = '✓';
+  } else if (rec.status === 'in_progress') {
+    statusClass = 'status-in-progress';
+    statusText = '履修中';
+    statusIcon = '●';
+  }
+
+  let timetableBtn = '';
+  if (addedLesson) {
+    timetableBtn = `
+      <button type="button" class="btn-card-unlink" onclick="window.__removeLessonFromCurric('${escapeHtml(sub.coreKey)}', '${escapeHtml(addedLesson.id)}')" title="${escapeHtml(addedLesson.name)} (${escapeHtml(addedLesson.semester || '')} ${escapeHtml(addedLesson.day || '')}${escapeHtml(addedLesson.periodRaw || '')})">
+        ✓ 登録中 (解除)
+      </button>
+    `;
+  } else if (candidates.length === 1) {
+    timetableBtn = `
+      <button type="button" class="btn-card-add" onclick="window.__addLessonFromCurric('${escapeHtml(sub.coreKey)}', '${escapeHtml(candidates[0].id)}')">
+        ＋時間割へ
+      </button>
+    `;
+  } else if (candidates.length > 1) {
+    timetableBtn = `
+      <button type="button" class="btn-card-pick" onclick="window.__openCurricCandidatesModal('${escapeHtml(sub.coreKey)}')">
+        ＋候補 (${candidates.length})
+      </button>
+    `;
+  }
+
+  const typeBadgeClass = sub.isRequired ? 'curric-type-req' : 'curric-type-elec';
+
+  return `
+    <div class="curric-timeline-card card-${rec.status}">
+      <div class="curric-card-top">
+        <span class="curric-status-pill small ${statusClass}" onclick="window.__cycleCurricStatus('${escapeHtml(sub.coreKey)}')" title="状況を切替">
+          ${statusIcon} ${statusText}
+        </span>
+        <span class="${typeBadgeClass}">${escapeHtml(sub.type)}</span>
+        <span class="curric-card-cr">${sub.credits}単位</span>
+      </div>
+      <div class="curric-card-title">${escapeHtml(sub.name)}</div>
+      <div class="curric-card-group-tag">${escapeHtml(sub.group)}</div>
+      <div class="curric-card-bottom">
+        ${timetableBtn}
+      </div>
+    </div>
+  `;
+}
+
 
 // ----------------------------------------------------
-// グローバル操作ハンドラー & モーダル制御 & JSON入出力
+// グローバル操作ハンドラー & モーダル制御 & JSON入出力 Part 4
 // ----------------------------------------------------
 
 window.__closeCurricModal = function() {
   document.querySelectorAll('.modal-overlay').forEach(m => {
     m.classList.remove('show', 'active');
+    m.style.display = 'none';
   });
 };
 
@@ -2364,8 +2622,24 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
-window.__cycleCurricStatus = function(subKey) {
-  const rec = getCurricSubjectRecord(subKey);
+// モーダル閉じるボタンの capture phase 委任 (どんなイベント停止もすり抜けて100%閉じる)
+document.addEventListener('click', function(e) {
+  const closeBtn = e.target.closest('.modal-close-btn, .btn-modal-close, [data-modal-close]');
+  if (closeBtn) {
+    e.preventDefault();
+    e.stopPropagation();
+    window.__closeCurricModal();
+    return;
+  }
+  if (e.target.classList && e.target.classList.contains('modal-overlay')) {
+    e.preventDefault();
+    e.stopPropagation();
+    window.__closeCurricModal();
+  }
+}, true);
+
+window.__cycleCurricStatus = function(coreKey) {
+  const rec = getCurricSubjectRecord(coreKey);
   if (rec.status === 'none') {
     rec.status = 'in_progress';
   } else if (rec.status === 'in_progress') {
@@ -2386,14 +2660,14 @@ window.__toggleCurricCatCollapse = function(catName) {
   renderCurriculumTab();
 };
 
-window.__addLessonFromCurric = function(subKey, lessonId) {
+window.__addLessonFromCurric = function(coreKey, lessonId) {
   const lesson = DATA.lessons.find(l => l.id === lessonId);
   if (!lesson) {
     showToast('授業データが見つかりませんでした');
     return;
   }
 
-  const rec = getCurricSubjectRecord(subKey);
+  const rec = getCurricSubjectRecord(coreKey);
   rec.assignedLessonId = lessonId;
   if (rec.status === 'none') {
     rec.status = 'in_progress';
@@ -2416,11 +2690,11 @@ window.__addLessonFromCurric = function(subKey, lessonId) {
   showToast(`「${lesson.name}」をMy時間割(${sem})に追加しました！ ⭐`);
 };
 
-window.__removeLessonFromCurric = function(subKey, lessonId) {
+window.__removeLessonFromCurric = function(coreKey, lessonId) {
   const lesson = DATA.lessons.find(l => l.id === lessonId);
   const lName = lesson ? lesson.name : '授業';
 
-  const rec = getCurricSubjectRecord(subKey);
+  const rec = getCurricSubjectRecord(coreKey);
   if (rec.assignedLessonId === lessonId) {
     rec.assignedLessonId = null;
   }
@@ -2441,16 +2715,15 @@ window.__removeLessonFromCurric = function(subKey, lessonId) {
   showToast(`「${lName}」をMy時間割から解除しました`);
 };
 
-window.__openCurricCandidatesModal = function(subKey) {
+window.__openCurricCandidatesModal = function(coreKey) {
   const subjects = getActiveCurricSubjects();
-  const sub = subjects.find(s => s.key === subKey);
-  if (!sub) return;
+  const sub = subjects.find(s => s.coreKey === coreKey) || { name: coreKey, credits: 2, category: '科目', coreKey: coreKey };
 
   state.activeCurricSubject = sub;
   const candidates = findCurricCandidates(sub.name);
 
   if (dom.curricModalSubTitle) {
-    dom.curricModalSubTitle.textContent = `${sub.name} (${sub.credits}単位)`;
+    dom.curricModalSubTitle.textContent = `${sub.name} (${sub.credits}単位・${sub.type || '科目'})`;
   }
   if (dom.curricModalSubDesc) {
     dom.curricModalSubDesc.textContent = `${sub.category} / 2026年度開講枠: ${candidates.length}件。希望の枠を選択して時間割に登録できます。`;
@@ -2480,8 +2753,8 @@ window.__openCurricCandidatesModal = function(subKey) {
           </div>
           <div class="curric-cand-action">
             ${isAdded 
-              ? `<button type="button" class="btn-cand-remove" onclick="window.__removeLessonFromCurric('${escapeHtml(sub.key)}', '${escapeHtml(l.id)}')">✓ 登録中 (解除)</button>`
-              : `<button type="button" class="btn-cand-add" onclick="window.__addLessonFromCurric('${escapeHtml(sub.key)}', '${escapeHtml(l.id)}')">＋この枠を追加</button>`
+              ? `<button type="button" class="btn-cand-remove" onclick="window.__removeLessonFromCurric('${escapeHtml(sub.coreKey)}', '${escapeHtml(l.id)}')">✓ 登録中 (解除)</button>`
+              : `<button type="button" class="btn-cand-add" onclick="window.__addLessonFromCurric('${escapeHtml(sub.coreKey)}', '${escapeHtml(l.id)}')">＋この枠を追加</button>`
             }
           </div>
         `;
@@ -2491,6 +2764,7 @@ window.__openCurricCandidatesModal = function(subKey) {
   }
 
   if (dom.curricCandidatesModal) {
+    dom.curricCandidatesModal.style.display = 'flex';
     dom.curricCandidatesModal.classList.add('show', 'active');
   }
 };
@@ -2503,7 +2777,7 @@ function openCurricJsonExportModal() {
   const exportData = {
     exportedAt: new Date().toISOString(),
     system: 'Curriculum_NUE',
-    version: 2,
+    version: 3,
     course: state.curricCourse,
     curricUserData: state.curricUserData,
     myTimetable: state.myTimetable,
@@ -2516,6 +2790,7 @@ function openCurricJsonExportModal() {
     dom.curricJsonTextarea.value = jsonStr;
   }
   if (dom.curricJsonModal) {
+    dom.curricJsonModal.style.display = 'flex';
     dom.curricJsonModal.classList.add('show', 'active');
   }
 }
@@ -2524,7 +2799,7 @@ function downloadCurricJsonFile() {
   const exportData = {
     exportedAt: new Date().toISOString(),
     system: 'Curriculum_NUE',
-    version: 2,
+    version: 3,
     course: state.curricCourse,
     curricUserData: state.curricUserData,
     myTimetable: state.myTimetable,
@@ -2560,7 +2835,7 @@ function applyCurricJsonData(jsonStr) {
 
     if (parsed.curricUserData && parsed.curricUserData.subjects) {
       state.curricUserData = {
-        version: 2,
+        version: 3,
         updatedAt: new Date().toISOString(),
         subjects: parsed.curricUserData.subjects
       };
@@ -2844,6 +3119,17 @@ function applyCurricJsonData(jsonStr) {
       dom.curricCourseSelect.addEventListener('change', () => {
         state.curricCourse = dom.curricCourseSelect.value;
         renderCurriculumTab();
+      });
+    }
+
+    if (dom.curricViewModeGroup) {
+      const modeBtns = dom.curricViewModeGroup.querySelectorAll('button[data-curric-mode]');
+      modeBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+          modeBtns.forEach(b => b.classList.toggle('active', b === btn));
+          state.curricViewMode = btn.dataset.curricMode;
+          renderCurriculumTab();
+        });
       });
     }
 

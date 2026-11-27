@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=20261127_2005">
+  <link rel="stylesheet" href="style.css?v=20261127_2022">
 </head>
 <body>
   <!-- Header -->
@@ -79,13 +79,12 @@
             </select>
           </div>
           <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-            <!-- 表示モード切り替え -->
             <div class="btn-group" id="curric-view-mode-group">
-              <button type="button" class="pill-btn active" data-curric-mode="table">📋 基準表テーブル</button>
+              <button type="button" class="pill-btn active" data-curric-mode="table">📋 基準表ビュー</button>
               <button type="button" class="pill-btn" data-curric-mode="timeline">📊 年次別タイムライン</button>
             </div>
-            <button type="button" id="btn-curric-reset-data" class="btn btn-outline btn-sm text-danger" title="履修ステータス・計画データをリセット">
-              🗑️ 履修データリセット
+            <button type="button" id="btn-curric-reset-data" class="btn btn-outline btn-sm text-danger" title="履修ステータスデータをリセット">
+              🗑️ 履修チェックをリセット
             </button>
           </div>
         </div>
@@ -112,12 +111,7 @@
                 <span id="curric-stat-inprogress">0</span><span style="font-size: 0.75rem; font-weight: normal; color: var(--text-muted);">単位</span>
               </div>
             </div>
-            <div>
-              <div style="font-size: 0.725rem; color: var(--text-muted);">合計予定</div>
-              <div style="font-size: 1.25rem; font-weight: 800; color: #b45309; font-family: monospace; line-height: 1.1;">
-                <span id="curric-stat-planned">0</span><span style="font-size: 0.75rem; font-weight: normal; color: var(--text-muted);">単位</span>
-              </div>
-            </div>
+
             <div>
               <div style="font-size: 0.725rem; color: var(--text-muted);">基準単位</div>
               <div style="font-size: 1.25rem; font-weight: 800; color: var(--text-secondary); font-family: monospace; line-height: 1.1;">
@@ -603,16 +597,16 @@
   <!-- ============================================== -->
   <!-- 履修基準表: 開講候補選択モーダル -->
   <!-- ============================================== -->
-  <div id="curric-candidates-modal" class="modal-overlay">
-    <div class="modal-card" style="max-width: 700px;">
-      <div class="modal-header">
-        <div>
-          <h3 id="curric-modal-sub-title" class="modal-title">開講枠の選択</h3>
-          <p id="curric-modal-sub-desc" style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">
+  <div id="curric-candidates-modal" class="modal-overlay" onclick="if(event.target === this) { this.classList.remove('show', 'active'); this.style.display = 'none'; }">
+    <div class="modal-card" style="max-width: 720px; position: relative;">
+      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: flex-start; padding: 18px 22px; border-bottom: 1px solid var(--border-color);">
+        <div style="padding-right: 36px;">
+          <h3 id="curric-modal-sub-title" class="modal-title" style="margin: 0; font-size: 1.15rem; font-weight: 700;">開講枠の選択</h3>
+          <p id="curric-modal-sub-desc" style="font-size: 0.825rem; color: var(--text-muted); margin-top: 4px; line-height: 1.4;">
             この科目に該当する開講枠（曜限・教員・教室）を選択して時間割に登録します
           </p>
         </div>
-        <button type="button" class="modal-close-btn" aria-label="閉じる">&times;</button>
+        <button type="button" class="modal-close-btn" onclick="document.querySelectorAll('.modal-overlay').forEach(m => { m.classList.remove('show', 'active'); m.style.display = 'none'; });" aria-label="閉じる" style="position: absolute; right: 16px; top: 16px; width: 38px; height: 38px; font-size: 1.8rem; line-height: 1; border: none; background: #f1f5f9; cursor: pointer; color: var(--text-secondary); border-radius: 50%; display: flex; align-items: center; justify-content: center; z-index: 20;">&times;</button>
       </div>
       <div class="modal-body">
         <div id="curric-modal-cands-list" style="display: flex; flex-direction: column; gap: 10px; max-height: 55vh; overflow-y: auto;">
@@ -625,11 +619,11 @@
   <!-- ============================================== -->
   <!-- 履修基準表: JSON入出力モーダル -->
   <!-- ============================================== -->
-  <div id="curric-json-modal" class="modal-overlay">
-    <div class="modal-card" style="max-width: 600px;">
-      <div class="modal-header">
-        <h3 class="modal-title">📥 履修データのJSON入出力</h3>
-        <button type="button" class="modal-close-btn" aria-label="閉じる">&times;</button>
+  <div id="curric-json-modal" class="modal-overlay" onclick="if(event.target === this) { this.classList.remove('show', 'active'); this.style.display = 'none'; }">
+    <div class="modal-card" style="max-width: 620px; position: relative;">
+      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; padding: 18px 22px; border-bottom: 1px solid var(--border-color);">
+        <h3 class="modal-title" style="margin: 0; font-size: 1.15rem; font-weight: 700;">📥 履修データのJSON入出力</h3>
+        <button type="button" class="modal-close-btn" onclick="document.querySelectorAll('.modal-overlay').forEach(m => { m.classList.remove('show', 'active'); m.style.display = 'none'; });" aria-label="閉じる" style="position: absolute; right: 16px; top: 16px; width: 38px; height: 38px; font-size: 1.8rem; line-height: 1; border: none; background: #f1f5f9; cursor: pointer; color: var(--text-secondary); border-radius: 50%; display: flex; align-items: center; justify-content: center; z-index: 20;">&times;</button>
       </div>
       <div class="modal-body">
         <p style="font-size: 0.825rem; color: var(--text-secondary); margin-bottom: 10px;">
@@ -652,8 +646,8 @@
   </div>
 
   <!-- データファイルとアプリケーションスクリプト (キャッシュバスター付き) -->
-  <script src="curriculum_data.js?v=20261127_2005"></script>
-  <script src="data.js?v=20261127_2005"></script>
-  <script src="app.js?v=20261127_2005"></script>
+  <script src="curriculum_data.js?v=20261127_2022"></script>
+  <script src="data.js?v=20261127_2022"></script>
+  <script src="app.js?v=20261127_2022"></script>
 </body>
 </html>

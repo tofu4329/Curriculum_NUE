@@ -2161,3 +2161,243 @@ body {
   background: #f1f5f9 !important;
   color: #0f172a !important;
 }
+
+/* --- 必修 / 選択 バッジ --- */
+.curric-type-req {
+  display: inline-block;
+  background: #fee2e2;
+  color: #b91c1c;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 4px;
+  border: 1px solid #fca5a5;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.curric-type-elec {
+  display: inline-block;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 4px;
+  border: 1px solid #cbd5e1;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+/* ==================================================== */
+/* 📊 年次別タイムライン (カンバンボード) デザイン */
+/* ==================================================== */
+.curric-timeline-grid {
+  display: grid;
+  grid-template-columns: repeat(9, 290px);
+  gap: 14px;
+  overflow-x: auto;
+  padding: 4px 4px 20px 4px;
+}
+
+.curric-timeline-col {
+  background: #f8fafc;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  min-height: 550px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.curric-timeline-col-header {
+  padding-bottom: 10px;
+  margin-bottom: 12px;
+  border-bottom: 2px solid #3b82f6;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.curric-timeline-col-header .col-title-wrap {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.curric-timeline-col-title {
+  font-size: 1rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.curric-timeline-col-badge {
+  background: #e2e8f0;
+  color: #334155;
+  font-size: 0.725rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 9999px;
+}
+
+.curric-timeline-col-credits {
+  font-size: 0.775rem;
+  color: #64748b;
+}
+
+.curric-timeline-col-credits strong {
+  font-family: monospace;
+  font-size: 0.875rem;
+  color: #10b981;
+}
+
+.curric-timeline-col-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  overflow-y: auto;
+  max-height: 70vh;
+  padding-right: 2px;
+}
+
+.timeline-empty-slot {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  text-align: center;
+  padding: 30px 10px;
+  border: 1.5px dashed #cbd5e1;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.curric-timeline-card {
+  background: #ffffff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  transition: all 0.15s ease;
+}
+
+.curric-timeline-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+  border-color: #cbd5e1;
+}
+
+.curric-timeline-card.card-completed {
+  background: #fcfdfc;
+  border-left: 4px solid #10b981;
+}
+
+.curric-timeline-card.card-in_progress {
+  background: #fffdfa;
+  border-left: 4px solid #f59e0b;
+}
+
+.curric-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+
+.curric-status-pill.small {
+  padding: 3px 8px;
+  font-size: 0.725rem;
+  min-width: 65px;
+}
+
+.curric-card-cr {
+  font-size: 0.775rem;
+  font-weight: 800;
+  color: #0f172a;
+  font-family: monospace;
+}
+
+.curric-card-title {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #1e293b;
+  line-height: 1.35;
+}
+
+.curric-card-group-tag {
+  font-size: 0.7rem;
+  color: #64748b;
+  background: #f1f5f9;
+  padding: 2px 7px;
+  border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.curric-card-bottom {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.btn-card-add {
+  background: #eff6ff;
+  border: 1px solid #3b82f6;
+  color: #1d4ed8;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  width: 100%;
+}
+
+.btn-card-add:hover {
+  background: #3b82f6;
+  color: #ffffff;
+}
+
+.btn-card-pick {
+  background: #f5f3ff;
+  border: 1px solid #8b5cf6;
+  color: #6d28d9;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  width: 100%;
+}
+
+.btn-card-pick:hover {
+  background: #8b5cf6;
+  color: #ffffff;
+}
+
+.btn-card-unlink {
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #047857;
+  font-size: 0.725rem;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.btn-card-unlink:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: #dc2626;
+}
