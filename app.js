@@ -1878,35 +1878,42 @@ const ALL_SEMESTERS = [
   '4年前期', '4年後期'
 ];
 
-function isLessonInMyTimetable(lessonId) {
+function getAllMyTimetableLessonIds() {
+  const z = (state.myTimetable && state.myTimetable['前期']) || [];
+  const k = (state.myTimetable && state.myTimetable['後期']) || [];
+  return [...new Set([...z, ...k])];
+}
+
+function isLessonInAnyTimetable(lessonId) {
   if (!lessonId || !state.myTimetable) return false;
-  return state.myTimetable.some(entry => entry.lessonId === lessonId || (entry.lesson && entry.lesson.id === lessonId));
+  const z = state.myTimetable['前期'] || [];
+  const k = state.myTimetable['後期'] || [];
+  return z.includes(lessonId) || k.includes(lessonId);
 }
 
 function getAddedLessonForSubject(subjectName, candidates) {
-  if (!state.myTimetable || state.myTimetable.length === 0) return null;
+  if (!state.myTimetable) return null;
+  const allIds = getAllMyTimetableLessonIds();
+  if (allIds.length === 0) return null;
+
   // 1. candidates のいずれかが時間割に入っているか
   if (candidates && candidates.length > 0) {
     const candIds = new Set(candidates.map(c => c.id));
-    const found = state.myTimetable.find(entry => {
-      const lid = entry.lessonId || (entry.lesson && entry.lesson.id);
-      return candIds.has(lid);
-    });
-    if (found) {
-      const lid = found.lessonId || (found.lesson && found.lesson.id);
-      return candidates.find(c => c.id === lid) || found.lesson || { id: lid, name: subjectName };
+    const matchedId = allIds.find(id => candIds.has(id));
+    if (matchedId) {
+      return candidates.find(c => c.id === matchedId) || DATA.lessons.find(x => x.id === matchedId) || { id: matchedId, name: subjectName };
     }
   }
+
   // 2. 名前正規化一致
   const normSub = normalizeSubName(subjectName);
-  const found = state.myTimetable.find(entry => {
-    const l = entry.lesson || DATA.lessons.find(x => x.id === entry.lessonId);
-    if (!l) return false;
-    return normalizeSubName(l.name) === normSub;
-  });
-  if (found) {
-    return found.lesson || DATA.lessons.find(x => x.id === found.lessonId) || null;
+  for (const id of allIds) {
+    const l = DATA.lessons.find(x => x.id === id);
+    if (l && normalizeSubName(l.name) === normSub) {
+      return l;
+    }
   }
+
   return null;
 }
 
@@ -2263,17 +2270,21 @@ window.__addLessonFromCurric = function(subKey, lessonId) {
   }
   saveCurricUserData();
 
-  // 時間割に追加
-  addLessonToMyTimetable(lesson);
+  // 時間割に追加 (前期 / 後期)
+  let sem = '前期';
+  if (lesson.semester === '後期') sem = '後期';
+  if (!state.myTimetable[sem]) state.myTimetable[sem] = [];
+  if (!state.myTimetable[sem].includes(lessonId)) {
+    state.myTimetable[sem].push(lessonId);
+  }
+  saveMyTimetable();
 
   // 候補モーダルが開いていれば閉じる
-  if (dom.curricCandidatesModal) {
-    dom.curricCandidatesModal.classList.remove('active');
-  }
+  document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('show', 'active'));
 
   renderCurriculumTab();
   renderMyTimetableTab();
-  showToast(`「${lesson.name}」をMy時間割に追加しました`);
+  showToast(`「${lesson.name}」をMy時間割(${sem})に追加しました！ ⭐`);
 };
 
 window.__removeLessonFromCurric = function(subKey, lessonId) {
@@ -2287,11 +2298,14 @@ window.__removeLessonFromCurric = function(subKey, lessonId) {
   saveCurricUserData();
 
   // 時間割から削除
-  state.myTimetable = state.myTimetable.filter(e => {
-    const eid = e.lessonId || (e.lesson && e.lesson.id);
-    return eid !== lessonId;
+  ['前期', '後期'].forEach(sem => {
+    if (state.myTimetable && state.myTimetable[sem]) {
+      state.myTimetable[sem] = state.myTimetable[sem].filter(id => id !== lessonId);
+    }
   });
   saveMyTimetable();
+
+  document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('show', 'active'));
 
   renderCurriculumTab();
   renderMyTimetableTab();
@@ -2310,7 +2324,7 @@ window.__openCurricCandidatesModal = function(subKey) {
     dom.curricModalSubTitle.textContent = `${sub.name} (${sub.credits}単位)`;
   }
   if (dom.curricModalSubDesc) {
-    dom.curricModalSubDesc.textContent = `${sub.category} / 2026年度開講枠: ${candidates.length}件。希望の枠を選択して時間割に追加してください。`;
+    dom.curricModalSubDesc.textContent = `${sub.category} / 2026年度開講枠: ${candidates.length}件。希望の枠を選択して時間割に登録できます。`;
   }
 
   if (dom.curricModalCandsList) {
@@ -2319,7 +2333,7 @@ window.__openCurricCandidatesModal = function(subKey) {
       dom.curricModalCandsList.innerHTML = '<div class="curric-cand-empty">開講枠がありません</div>';
     } else {
       candidates.forEach(l => {
-        const isAdded = isLessonInMyTimetable(l.id);
+        const isAdded = isLessonInAnyTimetable(l.id);
         const card = document.createElement('div');
         card.className = `curric-cand-card ${isAdded ? 'added' : ''}`;
         card.innerHTML = `
@@ -2348,7 +2362,7 @@ window.__openCurricCandidatesModal = function(subKey) {
   }
 
   if (dom.curricCandidatesModal) {
-    dom.curricCandidatesModal.classList.add('active');
+    dom.curricCandidatesModal.classList.add('show', 'active');
   }
 };
 
@@ -2363,7 +2377,9 @@ function openCurricJsonExportModal() {
     version: 1,
     course: state.curricCourse,
     curricUserData: state.curricUserData,
-    myTimetable: state.myTimetable
+    myTimetable: state.myTimetable,
+    conflictAck: state.conflictAck,
+    conflictDismissed: state.conflictDismissed
   };
 
   const jsonStr = JSON.stringify(exportData, null, 2);
@@ -2371,7 +2387,7 @@ function openCurricJsonExportModal() {
     dom.curricJsonTextarea.value = jsonStr;
   }
   if (dom.curricJsonModal) {
-    dom.curricJsonModal.classList.add('active');
+    dom.curricJsonModal.classList.add('show', 'active');
   }
 }
 
@@ -2382,7 +2398,9 @@ function downloadCurricJsonFile() {
     version: 1,
     course: state.curricCourse,
     curricUserData: state.curricUserData,
-    myTimetable: state.myTimetable
+    myTimetable: state.myTimetable,
+    conflictAck: state.conflictAck,
+    conflictDismissed: state.conflictDismissed
   };
 
   const jsonStr = JSON.stringify(exportData, null, 2);
@@ -2420,14 +2438,17 @@ function applyCurricJsonData(jsonStr) {
       saveCurricUserData();
     }
 
-    if (Array.isArray(parsed.myTimetable)) {
-      state.myTimetable = parsed.myTimetable;
+    if (parsed.myTimetable && typeof parsed.myTimetable === 'object') {
+      state.myTimetable = {
+        '前期': Array.isArray(parsed.myTimetable['前期']) ? parsed.myTimetable['前期'] : [],
+        '後期': Array.isArray(parsed.myTimetable['後期']) ? parsed.myTimetable['後期'] : []
+      };
+      if (parsed.conflictAck) state.conflictAck = parsed.conflictAck;
+      if (parsed.conflictDismissed) state.conflictDismissed = parsed.conflictDismissed;
       saveMyTimetable();
     }
 
-    if (dom.curricJsonModal) {
-      dom.curricJsonModal.classList.remove('active');
-    }
+    document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('show', 'active'));
 
     renderCurriculumTab();
     renderMyTimetableTab();
@@ -2519,17 +2540,22 @@ function applyCurricJsonData(jsonStr) {
     // モーダル閉じるボタン
     document.querySelectorAll('.modal-close-btn').forEach(btn => {
       btn.addEventListener('click', () => {
-        document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('show', 'active'));
+        if (dom.lessonModal) dom.lessonModal.classList.remove('show');
+        if (dom.lessonSelectModal) dom.lessonSelectModal.classList.remove('show');
+        if (dom.slotPickerModal) dom.slotPickerModal.classList.remove('show');
+        if (dom.conflictDetailsModal) dom.conflictDetailsModal.classList.remove('show');
       });
     });
 
     // モーダル背景クリック
-    document.querySelectorAll('.modal-overlay').forEach(modal => {
-      modal.addEventListener('click', (e) => {
-        if (e.target === modal) {
-          modal.classList.remove('show', 'active');
-        }
-      });
+    [dom.lessonModal, dom.lessonSelectModal, dom.slotPickerModal, dom.conflictDetailsModal].forEach(modal => {
+      if (modal) {
+        modal.addEventListener('click', (e) => {
+          if (e.target === modal) {
+            modal.classList.remove('show');
+          }
+        });
+      }
     });
 
     if (dom.timetableRoomSelect) {
@@ -2784,14 +2810,6 @@ function applyCurricJsonData(jsonStr) {
         }
       });
     }
-
-    // 候補モーダルの閉じるボタン
-    const modalCloses = document.querySelectorAll('.modal-close, .modal-backdrop');
-    modalCloses.forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.modal.active').forEach(m => m.classList.remove('active'));
-      });
-    });
   }
 
   // ----------------------------------------------------
