@@ -3,21 +3,21 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>奈良教育大学 空き教室・利用状況チェッカー</title>
+  <title>奈良教育大学 履修計画 &amp; My時間割マネージャー</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=20261127_01">
 </head>
 <body>
   <!-- Header -->
   <header class="app-header">
     <div class="header-inner">
       <div class="brand">
-        <div class="brand-icon">🏫</div>
+        <div class="brand-icon">🎓</div>
         <div>
-          <h1 class="brand-title">奈良教育大学 空き教室・利用状況チェッカー</h1>
-          <p class="brand-subtitle">シラバス時間割データからリアルタイムに教室状況を可視化</p>
+          <h1 class="brand-title">奈良教育大学 履修計画 &amp; My時間割</h1>
+          <p class="brand-subtitle">履修基準表・単位管理・シラバス時間割1クリック連携</p>
         </div>
       </div>
       <div class="header-actions">
@@ -26,16 +26,28 @@
           <button type="button" class="sem-btn active" data-sem="前期">前期</button>
           <button type="button" class="sem-btn" data-sem="後期">後期</button>
         </div>
-        <!-- 今すぐ使える教室ボタン -->
-        <button type="button" id="btn-now" class="btn btn-primary">
-          <span class="icon">⚡</span> 今すぐ使える教室
+        <!-- JSON出力・読込アクション -->
+        <button type="button" id="btn-header-export-json" class="btn btn-outline" style="font-size: 0.825rem; padding: 6px 12px;" title="現在の履修計画・時間割をJSONファイルとして保存">
+          📥 JSON出力
+        </button>
+        <button type="button" id="btn-header-import-json" class="btn btn-outline" style="font-size: 0.825rem; padding: 6px 12px;" title="保存したJSONファイルを読み込み">
+          📤 JSON読込
         </button>
       </div>
     </div>
 
     <!-- Navigation Tabs -->
     <nav class="app-nav">
-      <button class="nav-tab active" data-tab="free-rooms">
+      <button class="nav-tab active" data-tab="curriculum">
+        <span class="tab-icon">🎓</span> 履修基準・計画
+      </button>
+      <button class="nav-tab" data-tab="my-timetable">
+        <span class="tab-icon">⭐</span> My時間割 <span id="my-badge-count" class="badge-count">0</span>
+      </button>
+      <button class="nav-tab" data-tab="lessons">
+        <span class="tab-icon">📖</span> 科目全件検索
+      </button>
+      <button class="nav-tab" data-tab="free-rooms">
         <span class="tab-icon">🔍</span> 空き教室を探す
       </button>
       <button class="nav-tab" data-tab="timetable">
@@ -44,20 +56,129 @@
       <button class="nav-tab" data-tab="matrix">
         <span class="tab-icon">📊</span> 全体稼働マトリクス
       </button>
-      <button class="nav-tab" data-tab="lessons">
-        <span class="tab-icon">📖</span> 科目全件検索
-      </button>
-      <button class="nav-tab" data-tab="my-timetable">
-        <span class="tab-icon">⭐</span> My時間割 <span id="my-badge-count" class="badge-count">0</span>
-      </button>
     </nav>
   </header>
 
   <main class="app-main">
     <!-- ============================================== -->
+    <!-- TAB: 履修基準・計画 (Curriculum & Study Plan) -->
+    <!-- ============================================== -->
+    <section id="tab-curriculum" class="tab-content active">
+      <!-- 上部操作バー: コース選択 & 表示モード & JSON出力 -->
+      <div class="card" style="padding: 14px 18px; margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+          <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+            <label for="curric-course-select" style="font-weight: 700; font-size: 0.9rem; color: var(--text-secondary);">
+              🎓 履修課程・免許:
+            </label>
+            <select id="curric-course-select" class="form-select" style="font-size: 0.9rem; font-weight: 700; padding: 6px 14px; border-radius: var(--radius-sm); border: 2px solid var(--primary-color); background: #eff6ff; color: var(--primary-color); cursor: pointer; outline: none;">
+              <option value="tech" selected>🛠️ 技術科（中学校一種・技術教育専修）</option>
+              <option value="industry">🏭 工業（高等学校一種）</option>
+              <option value="librarian">📚 学校図書館司書教諭</option>
+              <option value="science">🧪 高校理科（高等学校一種）</option>
+            </select>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <!-- 表示モード切り替え -->
+            <div class="btn-group" id="curric-view-mode-group">
+              <button type="button" class="pill-btn active" data-curric-mode="table">📋 基準表テーブル</button>
+              <button type="button" class="pill-btn" data-curric-mode="timeline">📊 年次別タイムライン</button>
+            </div>
+            <button type="button" id="btn-curric-reset-data" class="btn btn-outline btn-sm text-danger" title="履修ステータス・計画データをリセット">
+              🗑️ 履修データリセット
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 進捗サマリーバー -->
+      <div class="curric-stats-container" style="display: grid; grid-template-columns: 320px 1fr; gap: 16px; margin-bottom: 16px;">
+        <!-- 総単位数カード -->
+        <div class="card" style="padding: 14px 18px; background: linear-gradient(135deg, #f8fafc 0%, #edf2f7 100%);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span style="font-size: 0.8rem; font-weight: 700; color: var(--text-secondary);">総単位数進捗</span>
+            <span id="curric-stat-badge" class="badge" style="background: #e2e8f0; color: var(--text-secondary); font-size: 0.75rem; font-weight: 700;">計算中...</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 10px;">
+            <div>
+              <div style="font-size: 0.725rem; color: var(--text-muted);">修得済</div>
+              <div style="font-size: 1.5rem; font-weight: 800; color: var(--success-color); font-family: monospace; line-height: 1.1;">
+                <span id="curric-stat-completed">0</span><span style="font-size: 0.75rem; font-weight: normal; color: var(--text-muted);">単位</span>
+              </div>
+            </div>
+            <div>
+              <div style="font-size: 0.725rem; color: var(--text-muted);">履修中</div>
+              <div style="font-size: 1.25rem; font-weight: 800; color: var(--primary-color); font-family: monospace; line-height: 1.1;">
+                <span id="curric-stat-inprogress">0</span><span style="font-size: 0.75rem; font-weight: normal; color: var(--text-muted);">単位</span>
+              </div>
+            </div>
+            <div>
+              <div style="font-size: 0.725rem; color: var(--text-muted);">合計予定</div>
+              <div style="font-size: 1.25rem; font-weight: 800; color: #b45309; font-family: monospace; line-height: 1.1;">
+                <span id="curric-stat-planned">0</span><span style="font-size: 0.75rem; font-weight: normal; color: var(--text-muted);">単位</span>
+              </div>
+            </div>
+            <div>
+              <div style="font-size: 0.725rem; color: var(--text-muted);">基準単位</div>
+              <div style="font-size: 1.25rem; font-weight: 800; color: var(--text-secondary); font-family: monospace; line-height: 1.1;">
+                <span id="curric-stat-required">--</span><span style="font-size: 0.75rem; font-weight: normal; color: var(--text-muted);">単位</span>
+              </div>
+            </div>
+          </div>
+          <!-- プログレスバー -->
+          <div style="height: 8px; background: #e2e8f0; border-radius: 9999px; overflow: hidden; display: flex;">
+            <div id="curric-prog-completed" style="width: 0%; height: 100%; background: var(--success-color); transition: width 0.3s;"></div>
+            <div id="curric-prog-inprogress" style="width: 0%; height: 100%; background: var(--primary-color); transition: width 0.3s;"></div>
+          </div>
+        </div>
+
+        <!-- カテゴリ別進捗カードグリッド -->
+        <div id="curric-category-stats-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px;">
+          <!-- 動的生成 -->
+        </div>
+      </div>
+
+      <!-- フィルター & 検索ツールバー -->
+      <div id="curric-filter-bar" class="card" style="padding: 10px 16px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+        <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <label style="font-size: 0.825rem; font-weight: 700; color: var(--text-secondary);">状況絞込:</label>
+            <div class="btn-group" id="curric-status-filter">
+              <button type="button" class="pill-btn active" data-curric-status="all">すべて</button>
+              <button type="button" class="pill-btn" data-curric-status="none">⚪ 未履修</button>
+              <button type="button" class="pill-btn" data-curric-status="in_progress">🔵 履修中</button>
+              <button type="button" class="pill-btn" data-curric-status="completed">🟢 修得済</button>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <label for="curric-search-input" style="font-size: 0.825rem; font-weight: 700; color: var(--text-secondary);">科目検索:</label>
+            <input type="text" id="curric-search-input" class="form-input" style="padding: 4px 10px; font-size: 0.85rem; width: 200px;" placeholder="科目名で絞り込み...">
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 0.825rem; color: var(--text-secondary);">
+            表示中: <strong id="curric-display-count">0</strong> 科目
+          </span>
+          <button type="button" id="btn-curric-collapse-all" class="btn btn-outline btn-sm">すべて閉じる</button>
+          <button type="button" id="btn-curric-expand-all" class="btn btn-outline btn-sm">すべて展開</button>
+        </div>
+      </div>
+
+      <!-- 基準表テーブルビューコンテナ -->
+      <div id="curric-table-view-container" style="display: flex; flex-direction: column; gap: 14px;">
+        <!-- 動的生成 -->
+      </div>
+
+      <!-- 年次別タイムラインビューコンテナ -->
+      <div id="curric-timeline-view-container" style="display: none;">
+        <!-- 動的生成 -->
+      </div>
+    </section>
+
+    <!-- ============================================== -->
     <!-- TAB 1: 空き教室を探す (Find Free Rooms) -->
     <!-- ============================================== -->
-    <section id="tab-free-rooms" class="tab-content active">
+    <section id="tab-free-rooms" class="tab-content">
       <!-- 絞り込みパネル -->
       <div class="filter-panel card">
         <div class="filter-group">
@@ -479,8 +600,60 @@
     </div>
   </div>
 
+  <!-- ============================================== -->
+  <!-- 履修基準表: 開講候補選択モーダル -->
+  <!-- ============================================== -->
+  <div id="curric-candidates-modal" class="modal-overlay">
+    <div class="modal-card" style="max-width: 700px;">
+      <div class="modal-header">
+        <div>
+          <h3 id="curric-modal-sub-title" class="modal-title">開講枠の選択</h3>
+          <p id="curric-modal-sub-desc" style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">
+            この科目に該当する開講枠（曜限・教員・教室）を選択して時間割に登録します
+          </p>
+        </div>
+        <button type="button" class="modal-close-btn" aria-label="閉じる">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="curric-modal-cands-list" style="display: flex; flex-direction: column; gap: 10px; max-height: 55vh; overflow-y: auto;">
+          <!-- 動的生成 -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================== -->
+  <!-- 履修基準表: JSON入出力モーダル -->
+  <!-- ============================================== -->
+  <div id="curric-json-modal" class="modal-overlay">
+    <div class="modal-card" style="max-width: 600px;">
+      <div class="modal-header">
+        <h3 class="modal-title">📥 履修データのJSON入出力</h3>
+        <button type="button" class="modal-close-btn" aria-label="閉じる">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 0.825rem; color: var(--text-secondary); margin-bottom: 10px;">
+          現在の履修ステータス、履修予定学期、選択した時間割番号などの全データです。保存や別端末への引き継ぎにご利用ください。
+        </p>
+        <textarea id="curric-json-textarea" class="form-input" style="width: 100%; height: 200px; font-family: monospace; font-size: 0.8rem; padding: 10px;" placeholder="ここにJSONテキストを貼り付けるか、下のボタンから操作してください..."></textarea>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px;">
+          <button type="button" id="btn-curric-modal-copy-json" class="btn btn-outline btn-sm">📋 クリップボードにコピー</button>
+          <button type="button" id="btn-curric-modal-download-json" class="btn btn-primary btn-sm">💾 ファイルとして保存 (.json)</button>
+          <label class="btn btn-outline btn-sm" style="cursor: pointer; margin-bottom: 0;">
+            📂 ファイルから読込 <input type="file" id="curric-json-file-input" accept=".json" style="display: none;">
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer" style="padding: 12px 18px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 8px;">
+        <button type="button" class="btn btn-outline btn-sm modal-close-btn">キャンセル</button>
+        <button type="button" id="btn-curric-modal-apply-json" class="btn btn-primary btn-sm">このJSONを適用・復元</button>
+      </div>
+    </div>
+  </div>
+
   <!-- データファイルとアプリケーションスクリプト (キャッシュバスター付き) -->
+  <script src="curriculum_data.js?v=20261127_01"></script>
   <script src="data.js?v=20261026_11"></script>
-  <script src="app.js?v=20261026_11"></script>
+  <script src="app.js?v=20261127_01"></script>
 </body>
 </html>
